@@ -1,5 +1,5 @@
 
-import { NfseData } from '../types';
+import { NfseData } from '../types.ts';
 
 /**
  * Converte string do XML para número de forma inteligente.

@@ -16,8 +16,8 @@ import {
   Wallet,
   Landmark
 } from 'lucide-react';
-import { NfseData } from './types';
-import { parseNfseXml } from './utils/xmlHelper';
+import { NfseData } from './types.ts';
+import { parseNfseXml } from './utils/xmlHelper.ts';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
