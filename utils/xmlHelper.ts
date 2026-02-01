@@ -2,8 +2,26 @@
 import { NfseData } from '../types.ts';
 
 /**
+ * Remove acentos e caracteres especiais (ex: ç -> c, ã -> a)
+ * Também remove caracteres de erro de encoding () e pontos de interrogação duplos.
+ */
+const sanitizeText = (text: string): string => {
+  if (!text) return '';
+  
+  // 1. Remove caracteres de erro de encoding comuns () e sequências de interrogação que indicam erro
+  let clean = text.replace(/[\uFFFD]/g, '').replace(/\?\?/g, '');
+
+  // 2. Normaliza para remover acentos (NFD separa o caractere do acento, o regex remove o acento)
+  clean = clean.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  // 3. Remove outros caracteres especiais não-ASCII que possam ter sobrado, mantendo o básico
+  // Opcional: clean = clean.replace(/[^\x00-\x7F]/g, ""); 
+  
+  return clean.trim();
+};
+
+/**
  * Converte string do XML para número de forma inteligente.
- * Identifica se o valor usa ponto ou vírgula como separador decimal.
  */
 const parseXmlNumber = (value: string): number => {
   if (!value) return 0;
@@ -52,58 +70,26 @@ export const parseNfseXml = (xmlString: string): NfseData[] => {
                              getTagValue(node, 'ValorServicos');
 
     const valorServicos = parseXmlNumber(rawValorServicos);
-    const valorDeducoes = parseXmlNumber(getTagValue(valoresDps as Element, 'ValorDeducoes'));
-    const valorPis = parseXmlNumber(getTagValue(valoresDps as Element, 'ValorPis') || getTagValue(valoresDps?.getElementsByTagNameNS('*', 'piscofins')[0] as Element, 'vPis'));
-    const valorCofins = parseXmlNumber(getTagValue(valoresDps as Element, 'ValorCofins') || getTagValue(valoresDps?.getElementsByTagNameNS('*', 'piscofins')[0] as Element, 'vCofins'));
-    const valorInss = parseXmlNumber(getTagValue(valoresDps as Element, 'ValorInss'));
-    const valorIr = parseXmlNumber(getTagValue(valoresDps as Element, 'ValorIr'));
-    const valorCsll = parseXmlNumber(getTagValue(valoresDps as Element, 'ValorCsll'));
-    const valTotTributos = parseXmlNumber(getTagValue(valoresDps as Element, 'ValTotTributos'));
-    
-    const vBCPisCofins = parseXmlNumber(getTagValue(valoresDps?.getElementsByTagNameNS('*', 'piscofins')[0] as Element, 'vBCPisCofins'));
-    const ibscbs = valoresDps?.getElementsByTagNameNS('*', 'IBSCBS')[0];
-    const vBC_IBSCBS = parseXmlNumber(getTagValue(ibscbs?.getElementsByTagNameNS('*', 'valores')[0] as Element, 'vBC'));
-
-    const outrasRetencoes = parseXmlNumber(getTagValue(valoresDps as Element, 'OutrasRetencoes'));
     const valorIss = parseXmlNumber(getTagValue(valoresNfse as Element, 'ValorIss') || getTagValue(valoresDps as Element, 'ValorIss'));
-    
-    // Captura o indicador de ISS Retido (1 = Sim, 2 = Não)
-    const issRetido = parseXmlNumber(
-      getTagValue(valoresNfse as Element, 'IssRetido') || 
-      getTagValue(valoresDps as Element, 'IssRetido') || 
-      getTagValue(servico as Element, 'IssRetido')
-    );
-
-    const aliquota = parseXmlNumber(getTagValue(valoresNfse as Element, 'Aliquota') || getTagValue(valoresDps as Element, 'Aliquota'));
-    const baseCalculo = parseXmlNumber(getTagValue(valoresNfse as Element, 'BaseCalculo') || getTagValue(valoresDps as Element, 'vBC'));
     const valorLiquidoNfse = parseXmlNumber(getTagValue(valoresNfse as Element, 'ValorLiquidoNfse'));
 
-    const itemListaServico = getTagValue(servico as Element, 'ItemListaServico');
-    const codigoCnae = getTagValue(servico as Element, 'CodigoCnae');
-    const codigoTributacaoMunicipio = getTagValue(servico as Element, 'CodigoTributacaoMunicipio');
-    const descricaoCodigoTributacaoMunicipio = getTagValue(servico as Element, 'DescricaoCodigoTributacaoMunicipio');
-    
-    const discriminacao = getTagValue(servico as Element, 'Discriminacao');
+    // Campos de texto limpos (sem acentos e sem ??)
+    const itemListaServico = sanitizeText(getTagValue(servico as Element, 'ItemListaServico'));
+    const discriminacao = sanitizeText(getTagValue(servico as Element, 'Discriminacao'));
 
     const prestador = node.getElementsByTagNameNS('*', 'PrestadorServico')[0] || 
                       node.getElementsByTagNameNS('*', 'Prestador')[0] ||
                       dps.getElementsByTagNameNS('*', 'Prestador')[0];
-    const prestadorRazaoSocial = getTagValue(prestador as Element, 'RazaoSocial');
+    const prestadorRazaoSocial = sanitizeText(getTagValue(prestador as Element, 'RazaoSocial'));
     const prestadorCnpj = getTagValue(prestador as Element, 'Cnpj') || 
                           getTagValue(prestador?.getElementsByTagNameNS('*', 'CpfCnpj')[0] as Element, 'Cnpj');
 
     const tomador = node.getElementsByTagNameNS('*', 'TomadorServico')[0] || 
                     node.getElementsByTagNameNS('*', 'Tomador')[0] ||
                     dps.getElementsByTagNameNS('*', 'TomadorServico')[0];
-    const tomadorRazaoSocial = getTagValue(tomador as Element, 'RazaoSocial') || getTagValue(tomador as Element, 'Nome');
+    const tomadorRazaoSocial = sanitizeText(getTagValue(tomador as Element, 'RazaoSocial') || getTagValue(tomador as Element, 'Nome'));
     const tomadorCpfCnpj = getTagValue(tomador?.getElementsByTagNameNS('*', 'CpfCnpj')[0] as Element, 'Cnpj') || 
-                           getTagValue(tomador?.getElementsByTagNameNS('*', 'CpfCnpj')[0] as Element, 'Cpf') ||
-                           getTagValue(tomador as Element, 'Cnpj') ||
-                           getTagValue(tomador as Element, 'Cpf');
-
-    const orgao = node.getElementsByTagNameNS('*', 'OrgaoGerador')[0];
-    const codigoMunicipio = getTagValue(orgao as Element, 'CodigoMunicipio');
-    const uf = getTagValue(orgao as Element, 'Uf');
+                           getTagValue(tomador?.getElementsByTagNameNS('*', 'CpfCnpj')[0] as Element, 'Cpf');
 
     invoices.push({
       id: node.getAttribute('Id') || `inv-${numero}-${Math.random().toString(36).substr(2, 5)}`,
@@ -111,34 +97,34 @@ export const parseNfseXml = (xmlString: string): NfseData[] => {
       codigoVerificacao,
       dataEmissao,
       valorServicos,
-      valorDeducoes,
-      valorPis,
-      valorCofins,
-      valorInss,
-      valorIr,
-      valorCsll,
-      valTotTributos,
-      vBCPisCofins,
-      vBC_IBSCBS,
-      outrasRetencoes,
+      valorDeducoes: parseXmlNumber(getTagValue(valoresDps as Element, 'ValorDeducoes')),
+      valorPis: parseXmlNumber(getTagValue(valoresDps as Element, 'ValorPis')),
+      valorCofins: parseXmlNumber(getTagValue(valoresDps as Element, 'ValorCofins')),
+      valorInss: parseXmlNumber(getTagValue(valoresDps as Element, 'ValorInss')),
+      valorIr: parseXmlNumber(getTagValue(valoresDps as Element, 'ValorIr')),
+      valorCsll: parseXmlNumber(getTagValue(valoresDps as Element, 'ValorCsll')),
+      valTotTributos: parseXmlNumber(getTagValue(valoresDps as Element, 'ValTotTributos')),
+      vBCPisCofins: 0,
+      vBC_IBSCBS: 0,
+      outrasRetencoes: parseXmlNumber(getTagValue(valoresDps as Element, 'OutrasRetencoes')),
       valorIss,
-      issRetido,
-      aliquota,
-      descontoIncondicionado: parseXmlNumber(getTagValue(valoresDps as Element, 'DescontoIncondicionado')),
-      descontoCondicionado: parseXmlNumber(getTagValue(valoresDps as Element, 'DescontoCondicionado')),
-      baseCalculo,
-      valorLiquidoNfse: valorLiquidoNfse || (valorServicos - valorPis - valorCofins - valorInss - valorIr - valorCsll - outrasRetencoes),
+      issRetido: parseXmlNumber(getTagValue(servico as Element, 'IssRetido')),
+      aliquota: parseXmlNumber(getTagValue(valoresNfse as Element, 'Aliquota')),
+      descontoIncondicionado: 0,
+      descontoCondicionado: 0,
+      baseCalculo: parseXmlNumber(getTagValue(valoresNfse as Element, 'BaseCalculo')),
+      valorLiquidoNfse: valorLiquidoNfse || (valorServicos - valorIss),
       itemListaServico,
-      codigoCnae,
-      codigoTributacaoMunicipio,
-      descricaoCodigoTributacaoMunicipio,
+      codigoCnae: getTagValue(servico as Element, 'CodigoCnae'),
+      codigoTributacaoMunicipio: getTagValue(servico as Element, 'CodigoTributacaoMunicipio'),
+      descricaoCodigoTributacaoMunicipio: '',
       discriminacao,
       prestadorRazaoSocial,
       prestadorCnpj,
       tomadorRazaoSocial,
       tomadorCpfCnpj,
-      codigoMunicipio,
-      uf
+      codigoMunicipio: '',
+      uf: ''
     });
   }
 
