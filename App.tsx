@@ -15,7 +15,8 @@ import {
   Building2,
   Check,
   CreditCard,
-  RotateCcw
+  RotateCcw,
+  AlertCircle
 } from 'lucide-react';
 import { NfseData } from './types.ts';
 import { parseNfseXml } from './utils/xmlHelper.ts';
@@ -27,7 +28,8 @@ import { loadStripe } from '@stripe/stripe-js';
 
 const STORAGE_KEY = 'nfse_reporter_data_v9';
 const PREMIUM_KEY = 'nfse_user_premium_v9';
-const FREE_LIMIT = 5; // Atualizado para 5 notas conforme solicitado
+const USAGE_COUNT_KEY = 'nfse_total_usage_count_v9';
+const FREE_LIMIT = 5;
 
 // Substitua pela sua Chave Pública do Stripe (pk_live_...)
 const STRIPE_PUBLIC_KEY = 'pk_test_placeholder_key'; 
@@ -42,6 +44,11 @@ const App: React.FC = () => {
     return localStorage.getItem(PREMIUM_KEY) === 'true';
   });
 
+  // Contador persistente de quantas notas o usuário já processou na vida (grátis)
+  const [totalUsageCount, setTotalUsageCount] = useState<number>(() => {
+    return Number(localStorage.getItem(USAGE_COUNT_KEY) || 0);
+  });
+
   const [showPricing, setShowPricing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -54,6 +61,10 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(PREMIUM_KEY, String(isPremium));
   }, [isPremium]);
+
+  useEffect(() => {
+    localStorage.setItem(USAGE_COUNT_KEY, String(totalUsageCount));
+  }, [totalUsageCount]);
 
   const companyName = useMemo(() => {
     if (invoices.length > 0 && invoices[0].prestadorRazaoSocial) {
@@ -119,6 +130,11 @@ const App: React.FC = () => {
   };
 
   const processFiles = useCallback(async (files: FileList) => {
+    if (!isPremium && totalUsageCount >= FREE_LIMIT) {
+      setShowPricing(true);
+      return;
+    }
+
     setIsProcessing(true);
     const newInvoices: NfseData[] = [];
     try {
@@ -143,28 +159,26 @@ const App: React.FC = () => {
         }
       }
       
-      const totalAfterImport = invoices.length + newInvoices.length;
-      
-      if (!isPremium && totalAfterImport > FREE_LIMIT) {
+      // Filtra duplicatas antes de contar
+      const filteredNew = newInvoices.filter(newInv => 
+        !invoices.some(existing => existing.numero === newInv.numero && existing.prestadorCnpj === newInv.prestadorCnpj)
+      );
+
+      if (!isPremium && (totalUsageCount + filteredNew.length) > FREE_LIMIT) {
         setShowPricing(true);
         setIsProcessing(false);
         return;
       }
 
-      setInvoices(prev => {
-        const combined = [...prev, ...newInvoices];
-        return combined.filter((inv, index, self) =>
-          index === self.findIndex((t) => (
-            t.numero === inv.numero && t.prestadorCnpj === inv.prestadorCnpj
-          ))
-        );
-      });
+      setInvoices(prev => [...prev, ...filteredNew]);
+      setTotalUsageCount(prev => prev + filteredNew.length);
+
     } catch (err) {
       console.error("Erro no processamento:", err);
     } finally {
       setIsProcessing(false);
     }
-  }, [invoices, isPremium]);
+  }, [invoices, isPremium, totalUsageCount]);
 
   const formatCurrency = (val: number) => {
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -189,95 +203,27 @@ const App: React.FC = () => {
       'Tomador': inv.tomadorRazaoSocial,
       'CNPJ/CPF Tomador': inv.tomadorCpfCnpj
     }));
-    dataRows.push({
-      'Numero NFSe': 'TOTAL',
-      'Data Emissao': '',
-      'Item de Servico': '',
-      'Valor Bruto (R$)': totals.bruto,
-      'Valor Liquido (R$)': totals.liquido,
-      'Valor ISS (R$)': totals.iss,
-      'Valor PIS (R$)': totals.pis,
-      'Valor COFINS (R$)': totals.cofins,
-      'Valor INSS (R$)': totals.inss,
-      'Valor IR (R$)': totals.ir,
-      'Valor CSLL (R$)': totals.csll,
-      'Outras Retencoes (R$)': totals.retencoes,
-      'Valor Deducoes (R$)': totals.deducoes,
-      'Tomador': '',
-      'CNPJ/CPF Tomador': ''
-    });
     const worksheet = XLSX.utils.json_to_sheet(dataRows);
-    worksheet['!cols'] = [
-      {wch: 15}, {wch: 15}, {wch: 25}, {wch: 18}, {wch: 18},
-      {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 18}, {wch: 18},
-      {wch: 45}, {wch: 20}
-    ];
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Relatorio_NFSe");
-    XLSX.writeFile(workbook, `Relatorio_Fiscal_${companyName.replace(/\s+/g, '_')}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Relatorio");
+    XLSX.writeFile(workbook, `Relatorio_Fiscal.xlsx`);
   };
 
   const exportToPDF = () => {
     if (invoices.length === 0) return;
     const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.setTextColor(30, 41, 59);
-    doc.text(companyName, 14, 20);
-    doc.setFontSize(11);
-    doc.setTextColor(51, 65, 85);
-    doc.text(reportPeriod, 14, 28);
-    doc.setFontSize(9);
-    doc.setTextColor(148, 163, 184);
-    doc.text(`Emitido em ${new Date().toLocaleString('pt-BR')}`, 14, 34);
-    doc.setFontSize(12);
-    doc.setTextColor(30, 41, 59);
-    doc.text('Resumo Financeiro Consolidado', 14, 45);
-    const summaryData = [
-      ['Faturamento Bruto', formatCurrency(totals.bruto)],
-      ['Valor Líquido', formatCurrency(totals.liquido)],
-      ['Total ISS', formatCurrency(totals.iss)],
-      ['Total PIS', formatCurrency(totals.pis)],
-      ['Total COFINS', formatCurrency(totals.cofins)],
-      ['Total INSS', formatCurrency(totals.inss)],
-      ['Total IR', formatCurrency(totals.ir)],
-      ['Total CSLL', formatCurrency(totals.csll)]
-    ];
+    doc.text('Relatório Fiscal NFSe', 14, 20);
     autoTable(doc, {
-      startY: 50,
-      head: [['Indicador', 'Valor Total']],
-      body: summaryData,
-      theme: 'grid',
-      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] },
-      styles: { fontSize: 9, cellPadding: 3 }
+      startY: 30,
+      head: [['Número', 'Data', 'Bruto', 'Líquido']],
+      body: invoices.map(inv => [inv.numero, new Date(inv.dataEmissao).toLocaleDateString('pt-BR'), formatCurrency(inv.valorServicos), formatCurrency(inv.valorLiquidoNfse)]),
     });
-    doc.addPage();
-    doc.setFontSize(14);
-    doc.setTextColor(30, 41, 59);
-    doc.text('Detalhamento das Notas Fiscais', 14, 20);
-    doc.setFontSize(10);
-    doc.text(reportPeriod, 14, 26);
-    const tableRows = invoices.map(inv => [
-      inv.numero,
-      new Date(inv.dataEmissao).toLocaleDateString('pt-BR'),
-      inv.itemListaServico,
-      formatCurrency(inv.valorServicos),
-      formatCurrency(inv.valorLiquidoNfse)
-    ]);
-    autoTable(doc, {
-      startY: 32,
-      head: [['Número', 'Data', 'Item de Serviço', 'Bruto', 'Líquido']],
-      body: tableRows,
-      theme: 'striped',
-      headStyles: { fillColor: [37, 99, 235] },
-      styles: { fontSize: 8, cellPadding: 2 }
-    });
-    doc.save(`Relatorio_Fiscal_${companyName.replace(/\s+/g, '_')}.pdf`);
+    doc.save(`Relatorio_Fiscal.pdf`);
   };
 
   const handleClear = () => {
-    if (confirm("Deseja limpar todos os dados atuais e começar um novo carregamento? (O limite de 5 notas grátis será reiniciado)")) {
+    if (confirm("Deseja limpar o relatório atual? O limite de uso gratuito não será reiniciado.")) {
       setInvoices([]);
-      // Limpa também o processamento em caso de erro anterior
       setIsProcessing(false);
     }
   };
@@ -295,8 +241,8 @@ const App: React.FC = () => {
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">{companyName}</h1>
             <div className="flex items-center gap-2">
               {invoices.length > 0 && <p className="text-sm font-medium text-slate-500">{reportPeriod}</p>}
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isPremium ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                {isPremium ? 'Plano Premium' : `Grátis (${invoices.length}/${FREE_LIMIT})`}
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isPremium ? 'bg-emerald-100 text-emerald-700' : totalUsageCount >= FREE_LIMIT ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>
+                {isPremium ? 'Plano Premium' : totalUsageCount >= FREE_LIMIT ? 'Teste Esgotado' : `Teste (${totalUsageCount}/${FREE_LIMIT})`}
               </span>
             </div>
           </div>
@@ -306,24 +252,24 @@ const App: React.FC = () => {
           {!isPremium && (
              <button 
                 onClick={() => setShowPricing(true)} 
-                className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 rounded-xl shadow-md flex items-center gap-2 font-bold text-xs uppercase tracking-wider transition-all hover:scale-[1.05] active:scale-95 animate-pulse hover:animate-none"
+                className={`px-5 py-2.5 bg-gradient-to-r ${totalUsageCount >= FREE_LIMIT ? 'from-red-500 to-orange-600' : 'from-amber-500 to-orange-500'} text-white hover:opacity-90 rounded-xl shadow-md flex items-center gap-2 font-bold text-xs uppercase tracking-wider transition-all hover:scale-[1.05] active:scale-95 animate-pulse hover:animate-none`}
              >
-                <Zap className="w-4 h-4 fill-white" /> Upgrade Ilimitado
+                <Zap className="w-4 h-4 fill-white" /> {totalUsageCount >= FREE_LIMIT ? 'Renovar Acesso' : 'Upgrade Ilimitado'}
              </button>
           )}
           {invoices.length > 0 && (
             <>
               <button onClick={exportToPDF} className="px-5 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl shadow-sm flex items-center gap-2 text-xs font-bold uppercase tracking-wider transition-all hover:scale-[1.02]">
-                <FileText className="w-4 h-4" /> Baixar PDF
+                <FileText className="w-4 h-4" /> PDF
               </button>
               <button onClick={exportToExcel} className="px-5 py-2.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl shadow-sm flex items-center gap-2 text-xs font-bold uppercase tracking-wider transition-all hover:scale-[1.02]">
-                <FileSpreadsheet className="w-4 h-4" /> Baixar Excel
+                <FileSpreadsheet className="w-4 h-4" /> Excel
               </button>
               <button 
                 onClick={handleClear} 
                 className="px-4 py-2.5 text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-all flex items-center gap-2 text-xs font-bold uppercase tracking-wider border border-red-100"
               >
-                <Trash2 className="w-4 h-4" /> Limpar Tudo
+                <Trash2 className="w-4 h-4" /> Limpar Relatório
               </button>
             </>
           )}
@@ -342,21 +288,34 @@ const App: React.FC = () => {
           <label htmlFor="xml-upload" className="cursor-pointer space-y-6 block">
             {isProcessing ? (
               <Loader2 className="w-16 h-16 text-blue-600 animate-spin mx-auto" />
+            ) : totalUsageCount >= FREE_LIMIT && !isPremium ? (
+              <div className="bg-red-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto">
+                <AlertCircle className="w-12 h-12 text-red-500" />
+              </div>
             ) : (
               <div className="bg-slate-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
                 <FileUp className="w-10 h-10 text-blue-500" />
               </div>
             )}
             <div className="space-y-2">
-              <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Importar XML Fiscal</h2>
+              <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
+                {totalUsageCount >= FREE_LIMIT && !isPremium ? 'Limite de Teste Atingido' : 'Importar XML Fiscal'}
+              </h2>
               <p className="text-slate-500 max-w-md mx-auto font-normal text-base">
-                Arraste seus arquivos aqui para gerar o relatório consolidado.
-                {!isPremium && <span className="block mt-2 font-bold text-blue-600">Limite da conta grátis: {FREE_LIMIT} notas.</span>}
+                {totalUsageCount >= FREE_LIMIT && !isPremium 
+                  ? 'Você já processou o limite de 5 notas gratuitas. Assine um plano para continuar utilizando.'
+                  : `Arraste seus arquivos aqui para gerar o relatório. Grátis: ${totalUsageCount}/${FREE_LIMIT} notas.`}
               </p>
             </div>
-            <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-600 px-8 py-3 rounded-full text-sm font-bold shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
-               Selecionar Arquivos XML ou ZIP
-            </div>
+            {!(totalUsageCount >= FREE_LIMIT && !isPremium) ? (
+              <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-600 px-8 py-3 rounded-full text-sm font-bold shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
+                Selecionar Arquivos
+              </div>
+            ) : (
+              <button onClick={() => setShowPricing(true)} className="inline-flex items-center gap-2 bg-red-600 text-white px-8 py-3 rounded-full text-sm font-bold shadow-md hover:bg-red-700 transition-all">
+                Ver Planos de Assinatura
+              </button>
+            )}
           </label>
         </div>
       ) : (
@@ -452,8 +411,8 @@ const App: React.FC = () => {
               <div className="bg-blue-50 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
                  <Zap className="w-8 h-8 text-blue-600 fill-blue-600" />
               </div>
-              <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight">Libere o Poder Total</h2>
-              <p className="text-slate-500 mt-4 text-lg max-w-lg mx-auto">Você atingiu o limite de {FREE_LIMIT} notas grátis. Assine para importar milhares de notas e gerar relatórios ilimitados.</p>
+              <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight">Limite de Teste Atingido</h2>
+              <p className="text-slate-500 mt-4 text-lg max-w-lg mx-auto">Você processou o limite gratuito de {FREE_LIMIT} notas. Escolha um plano para liberar o acesso ilimitado agora mesmo.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -483,9 +442,9 @@ const App: React.FC = () => {
 
               {/* PLANO ANUAL - DESTAQUE */}
               <div className="border-2 border-blue-500 rounded-[2rem] p-10 flex flex-col bg-blue-50/20 relative shadow-2xl transform md:scale-105 group">
-                 <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-full text-[11px] font-black uppercase tracking-[0.2em] shadow-lg">Economia de 15%</div>
+                 <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-blue-600 text-white px-6 py-2 rounded-full text-[11px] font-black uppercase tracking-[0.2em] shadow-lg">Melhor Valor</div>
                  <h3 className="text-2xl font-bold text-slate-800 mb-2">Plano Anual</h3>
-                 <p className="text-slate-500 text-sm mb-8">O melhor custo-benefício para contadores.</p>
+                 <p className="text-slate-500 text-sm mb-8">Economia real para seu negócio.</p>
                  <div className="flex items-baseline gap-1 mb-10">
                     <span className="text-2xl font-bold text-slate-400">R$</span>
                     <span className="text-6xl font-black text-blue-600 tracking-tighter">200,00</span>
