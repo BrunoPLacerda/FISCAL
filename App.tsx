@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { 
   FileUp, 
   FileSpreadsheet, 
@@ -15,7 +15,6 @@ import {
   Building2,
   Check,
   CreditCard,
-  RotateCcw,
   AlertCircle
 } from 'lucide-react';
 import { NfseData } from './types.ts';
@@ -24,15 +23,33 @@ import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { loadStripe } from '@stripe/stripe-js';
 
 const STORAGE_KEY = 'nfse_reporter_data_v9';
 const PREMIUM_KEY = 'nfse_user_premium_v9';
 const USAGE_COUNT_KEY = 'nfse_total_usage_count_v9';
 const FREE_LIMIT = 5;
 
-// Substitua pela sua Chave Pública do Stripe (pk_live_...)
-const STRIPE_PUBLIC_KEY = 'pk_test_placeholder_key'; 
+// Componente para renderizar o botão do Mercado Pago com o script em Português (Brasil)
+const MercadoPagoButton: React.FC = () => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      // Limpa o contêiner antes de adicionar o script para evitar botões duplicados
+      containerRef.current.innerHTML = '';
+      const script = document.createElement('script');
+      // Alterado de .com.ar para .com.br para forçar o idioma Português
+      script.src = "https://www.mercadopago.com.br/integrations/v1/web-payment-checkout.js";
+      script.setAttribute('data-preference-id', "1273324264-f92cada3-65b7-4a53-a55b-af7cfb015eb6");
+      script.setAttribute('data-source', "button");
+      containerRef.current.appendChild(script);
+    }
+  }, []);
+
+  return (
+    <div ref={containerRef} className="flex justify-center w-full min-h-[48px] overflow-hidden rounded-xl" />
+  );
+};
 
 const App: React.FC = () => {
   const [invoices, setInvoices] = useState<NfseData[]>(() => {
@@ -44,7 +61,6 @@ const App: React.FC = () => {
     return localStorage.getItem(PREMIUM_KEY) === 'true';
   });
 
-  // Contador persistente de quantas notas o usuário já processou na vida (grátis)
   const [totalUsageCount, setTotalUsageCount] = useState<number>(() => {
     return Number(localStorage.getItem(USAGE_COUNT_KEY) || 0);
   });
@@ -52,7 +68,6 @@ const App: React.FC = () => {
   const [showPricing, setShowPricing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [paymentLoading, setPaymentLoading] = useState<string | null>(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(invoices));
@@ -102,23 +117,6 @@ const App: React.FC = () => {
     }), { iss: 0, pis: 0, cofins: 0, inss: 0, ir: 0, csll: 0, bruto: 0, liquido: 0, retencoes: 0, deducoes: 0 });
   }, [invoices]);
 
-  const handleStripeCheckout = async (planType: 'mensal' | 'anual') => {
-    setPaymentLoading(planType);
-    try {
-      const stripe = await loadStripe(STRIPE_PUBLIC_KEY);
-      if (!stripe) throw new Error('Stripe falhou ao carregar');
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      setIsPremium(true);
-      setShowPricing(false);
-      alert(`Parabéns! Seu acesso ao plano ${planType.toUpperCase()} foi ativado com sucesso.`);
-    } catch (err) {
-      console.error('Erro no pagamento:', err);
-      alert('Houve um problema ao processar o pagamento.');
-    } finally {
-      setPaymentLoading(null);
-    }
-  };
-
   const decodeBuffer = (buffer: ArrayBuffer | Uint8Array): string => {
     const uint8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     try {
@@ -159,7 +157,6 @@ const App: React.FC = () => {
         }
       }
       
-      // Filtra duplicatas antes de contar
       const filteredNew = newInvoices.filter(newInv => 
         !invoices.some(existing => existing.numero === newInv.numero && existing.prestadorCnpj === newInv.prestadorCnpj)
       );
@@ -192,14 +189,6 @@ const App: React.FC = () => {
       'Item de Servico': inv.itemListaServico,
       'Valor Bruto (R$)': inv.valorServicos,
       'Valor Liquido (R$)': inv.valorLiquidoNfse,
-      'Valor ISS (R$)': inv.valorIss,
-      'Valor PIS (R$)': inv.valorPis,
-      'Valor COFINS (R$)': inv.valorCofins,
-      'Valor INSS (R$)': inv.valorInss,
-      'Valor IR (R$)': inv.valorIr,
-      'Valor CSLL (R$)': inv.valorCsll,
-      'Outras Retencoes (R$)': inv.outrasRetencoes,
-      'Valor Deducoes (R$)': inv.valorDeducoes,
       'Tomador': inv.tomadorRazaoSocial,
       'CNPJ/CPF Tomador': inv.tomadorCpfCnpj
     }));
@@ -401,7 +390,7 @@ const App: React.FC = () => {
         </>
       )}
 
-      {/* MODAL PREMIUM COM STRIPE */}
+      {/* MODAL PREMIUM COM MERCADO PAGO */}
       {showPricing && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-6 overflow-y-auto">
           <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-4xl w-full p-8 md:p-12 relative animate-in zoom-in-95 duration-300 my-auto border border-slate-100">
@@ -412,7 +401,7 @@ const App: React.FC = () => {
                  <Zap className="w-8 h-8 text-blue-600 fill-blue-600" />
               </div>
               <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight">Limite de Teste Atingido</h2>
-              <p className="text-slate-500 mt-4 text-lg max-w-lg mx-auto">Você processou o limite gratuito de {FREE_LIMIT} notas. Escolha um plano para liberar o acesso ilimitado agora mesmo.</p>
+              <p className="text-slate-500 mt-4 text-lg max-w-lg mx-auto">Você processou o limite gratuito de {FREE_LIMIT} notas. Escolha um plano para liberar o acesso ilimitado através do Mercado Pago.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -428,16 +417,11 @@ const App: React.FC = () => {
                  <ul className="space-y-5 mb-10 flex-grow">
                     <li className="flex items-center gap-3 text-sm font-medium text-slate-600"><Check className="w-5 h-5 text-blue-500 bg-blue-50 rounded-full p-1" /> Importação Ilimitada</li>
                     <li className="flex items-center gap-3 text-sm font-medium text-slate-600"><Check className="w-5 h-5 text-blue-500 bg-blue-50 rounded-full p-1" /> Exportação PDF/Excel</li>
-                    <li className="flex items-center gap-3 text-sm font-medium text-slate-600"><Check className="w-5 h-5 text-blue-500 bg-blue-50 rounded-full p-1" /> Filtros Avançados</li>
                  </ul>
-                 <button 
-                  disabled={!!paymentLoading}
-                  onClick={() => handleStripeCheckout('mensal')} 
-                  className="w-full py-5 bg-slate-900 text-white rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 disabled:opacity-50 shadow-lg group-hover:scale-[1.02]"
-                 >
-                    {paymentLoading === 'mensal' ? <Loader2 className="w-5 h-5 animate-spin" /> : <CreditCard className="w-5 h-5" />}
-                    {paymentLoading === 'mensal' ? 'Conectando...' : 'Assinar Mensal'}
-                 </button>
+                 {/* Inserindo o Botão do Mercado Pago aqui */}
+                 <div className="mt-auto">
+                    <MercadoPagoButton />
+                 </div>
               </div>
 
               {/* PLANO ANUAL - DESTAQUE */}
@@ -451,26 +435,20 @@ const App: React.FC = () => {
                     <span className="text-slate-400 font-medium">/ano</span>
                  </div>
                  <ul className="space-y-5 mb-10 flex-grow">
-                    <li className="flex items-center gap-3 text-sm font-bold text-slate-700"><Check className="w-5 h-5 text-white bg-blue-600 rounded-full p-1" /> Tudo do Plano Mensal</li>
                     <li className="flex items-center gap-3 text-sm font-bold text-slate-700"><Check className="w-5 h-5 text-white bg-blue-600 rounded-full p-1" /> 2 Meses de Bônus Grátis</li>
                     <li className="flex items-center gap-3 text-sm font-bold text-slate-700"><Check className="w-5 h-5 text-white bg-blue-600 rounded-full p-1" /> Prioridade em Novos Recursos</li>
                  </ul>
-                 <button 
-                  disabled={!!paymentLoading}
-                  onClick={() => handleStripeCheckout('anual')} 
-                  className="w-full py-5 bg-blue-600 text-white rounded-2xl font-bold uppercase text-xs tracking-widest shadow-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3 disabled:opacity-50 group-hover:scale-[1.02]"
-                 >
-                    {paymentLoading === 'anual' ? <Loader2 className="w-5 h-5 animate-spin" /> : <CreditCard className="w-5 h-5" />}
-                    {paymentLoading === 'anual' ? 'Conectando...' : 'Assinar Anual'}
-                 </button>
+                 {/* Inserindo o Botão do Mercado Pago aqui também */}
+                 <div className="mt-auto">
+                    <MercadoPagoButton />
+                 </div>
               </div>
             </div>
 
             <div className="mt-12 text-center border-t border-slate-100 pt-8">
               <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.25em] flex items-center justify-center gap-4">
-                <span className="flex items-center gap-1"><Check className="w-3 h-3" /> Stripe Secure</span>
+                <span className="flex items-center gap-1"><Check className="w-3 h-3" /> Mercado Pago Seguro</span>
                 <span className="flex items-center gap-1"><Check className="w-3 h-3" /> SSL Encrypted</span>
-                <span className="flex items-center gap-1"><Check className="w-3 h-3" /> PCI Compliance</span>
               </p>
             </div>
           </div>
