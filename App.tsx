@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { 
   FileUp, 
   FileSpreadsheet, 
@@ -15,7 +15,8 @@ import {
   Building2,
   Check,
   CreditCard,
-  AlertCircle
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import { NfseData } from './types.ts';
 import { parseNfseXml } from './utils/xmlHelper.ts';
@@ -29,27 +30,8 @@ const PREMIUM_KEY = 'nfse_user_premium_v9';
 const USAGE_COUNT_KEY = 'nfse_total_usage_count_v9';
 const FREE_LIMIT = 5;
 
-// Componente para renderizar o botão do Mercado Pago com o script em Português (Brasil)
-const MercadoPagoButton: React.FC = () => {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      // Limpa o contêiner antes de adicionar o script para evitar botões duplicados
-      containerRef.current.innerHTML = '';
-      const script = document.createElement('script');
-      // Alterado de .com.ar para .com.br para forçar o idioma Português
-      script.src = "https://www.mercadopago.com.br/integrations/v1/web-payment-checkout.js";
-      script.setAttribute('data-preference-id', "1273324264-f92cada3-65b7-4a53-a55b-af7cfb015eb6");
-      script.setAttribute('data-source', "button");
-      containerRef.current.appendChild(script);
-    }
-  }, []);
-
-  return (
-    <div ref={containerRef} className="flex justify-center w-full min-h-[48px] overflow-hidden rounded-xl" />
-  );
-};
+const MENSAL_LINK = "https://www.mercadopago.com.br/payment-link/v1/redirect?link-id=e9c92cd6-3936-4bba-a645-8ba89374930b&source=link";
+const ANUAL_LINK = "https://www.mercadopago.com.br/payment-link/v1/redirect?link-id=302d2f52-4776-4b7b-8409-2961dc34015b&source=link";
 
 const App: React.FC = () => {
   const [invoices, setInvoices] = useState<NfseData[]>(() => {
@@ -390,7 +372,7 @@ const App: React.FC = () => {
         </>
       )}
 
-      {/* MODAL PREMIUM COM MERCADO PAGO */}
+      {/* MODAL PREMIUM COM LINKS DO MERCADO PAGO */}
       {showPricing && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-6 overflow-y-auto">
           <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-4xl w-full p-8 md:p-12 relative animate-in zoom-in-95 duration-300 my-auto border border-slate-100">
@@ -401,7 +383,7 @@ const App: React.FC = () => {
                  <Zap className="w-8 h-8 text-blue-600 fill-blue-600" />
               </div>
               <h2 className="text-4xl font-extrabold text-slate-900 tracking-tight">Limite de Teste Atingido</h2>
-              <p className="text-slate-500 mt-4 text-lg max-w-lg mx-auto">Você processou o limite gratuito de {FREE_LIMIT} notas. Escolha um plano para liberar o acesso ilimitado através do Mercado Pago.</p>
+              <p className="text-slate-500 mt-4 text-lg max-w-lg mx-auto">Você processou o limite gratuito de {FREE_LIMIT} notas. Escolha um plano para liberar o acesso ilimitado.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -418,10 +400,14 @@ const App: React.FC = () => {
                     <li className="flex items-center gap-3 text-sm font-medium text-slate-600"><Check className="w-5 h-5 text-blue-500 bg-blue-50 rounded-full p-1" /> Importação Ilimitada</li>
                     <li className="flex items-center gap-3 text-sm font-medium text-slate-600"><Check className="w-5 h-5 text-blue-500 bg-blue-50 rounded-full p-1" /> Exportação PDF/Excel</li>
                  </ul>
-                 {/* Inserindo o Botão do Mercado Pago aqui */}
-                 <div className="mt-auto">
-                    <MercadoPagoButton />
-                 </div>
+                 <a 
+                  href={MENSAL_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-5 bg-slate-900 text-white rounded-2xl font-bold uppercase text-xs tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-3 shadow-lg hover:scale-[1.02]"
+                 >
+                    <CreditCard className="w-5 h-5" /> Assinar Mensal <ExternalLink className="w-4 h-4" />
+                 </a>
               </div>
 
               {/* PLANO ANUAL - DESTAQUE */}
@@ -438,17 +424,21 @@ const App: React.FC = () => {
                     <li className="flex items-center gap-3 text-sm font-bold text-slate-700"><Check className="w-5 h-5 text-white bg-blue-600 rounded-full p-1" /> 2 Meses de Bônus Grátis</li>
                     <li className="flex items-center gap-3 text-sm font-bold text-slate-700"><Check className="w-5 h-5 text-white bg-blue-600 rounded-full p-1" /> Prioridade em Novos Recursos</li>
                  </ul>
-                 {/* Inserindo o Botão do Mercado Pago aqui também */}
-                 <div className="mt-auto">
-                    <MercadoPagoButton />
-                 </div>
+                 <a 
+                  href={ANUAL_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-5 bg-blue-600 text-white rounded-2xl font-bold uppercase text-xs tracking-widest shadow-xl hover:bg-blue-700 transition-all flex items-center justify-center gap-3 hover:scale-[1.02]"
+                 >
+                    <CreditCard className="w-5 h-5" /> Assinar Anual <ExternalLink className="w-4 h-4" />
+                 </a>
               </div>
             </div>
 
             <div className="mt-12 text-center border-t border-slate-100 pt-8">
               <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.25em] flex items-center justify-center gap-4">
                 <span className="flex items-center gap-1"><Check className="w-3 h-3" /> Mercado Pago Seguro</span>
-                <span className="flex items-center gap-1"><Check className="w-3 h-3" /> SSL Encrypted</span>
+                <span className="flex items-center gap-1"><Check className="w-3 h-3" /> Pagamento Processado na Nuvem</span>
               </p>
             </div>
           </div>
