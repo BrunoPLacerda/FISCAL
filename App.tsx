@@ -168,28 +168,58 @@ const App: React.FC = () => {
     const dataRows = invoices.map(inv => ({
       'Numero NFSe': inv.numero,
       'Data Emissao': new Date(inv.dataEmissao).toLocaleDateString('pt-BR'),
+      'Tomador': inv.tomadorRazaoSocial,
+      'CNPJ/CPF Tomador': inv.tomadorCpfCnpj,
       'Item de Servico': inv.itemListaServico,
       'Valor Bruto (R$)': inv.valorServicos,
-      'Valor Liquido (R$)': inv.valorLiquidoNfse,
-      'Tomador': inv.tomadorRazaoSocial,
-      'CNPJ/CPF Tomador': inv.tomadorCpfCnpj
+      'PIS (R$)': inv.valorPis,
+      'COFINS (R$)': inv.valorCofins,
+      'CSLL (R$)': inv.valorCsll,
+      'ISS Retido': inv.issRetido === 1 ? 'Sim' : 'Não',
+      'Valor Liquido (R$)': inv.valorLiquidoNfse
     }));
     const worksheet = XLSX.utils.json_to_sheet(dataRows);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Relatorio");
-    XLSX.writeFile(workbook, `Relatorio_Fiscal.xlsx`);
+    XLSX.writeFile(workbook, `Relatorio_Fiscal_${companyName.replace(/\s/g, '_')}.xlsx`);
   };
 
   const exportToPDF = () => {
     if (invoices.length === 0) return;
-    const doc = new jsPDF();
-    doc.text('Relatório Fiscal NFSe', 14, 20);
+    const doc = new jsPDF('l', 'mm', 'a4'); // 'l' para landscape (horizontal) para caber mais colunas
+    
+    doc.setFontSize(16);
+    doc.text('Relatório Fiscal de Serviços (NFSe)', 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Empresa: ${companyName}`, 14, 22);
+    doc.text(reportPeriod, 14, 27);
+
     autoTable(doc, {
-      startY: 30,
-      head: [['Número', 'Data', 'Bruto', 'Líquido']],
-      body: invoices.map(inv => [inv.numero, new Date(inv.dataEmissao).toLocaleDateString('pt-BR'), formatCurrency(inv.valorServicos), formatCurrency(inv.valorLiquidoNfse)]),
+      startY: 35,
+      head: [['Número', 'Data', 'Tomador', 'Bruto', 'PIS', 'COFINS', 'CSLL', 'Retido', 'Líquido']],
+      body: invoices.map(inv => [
+        inv.numero, 
+        new Date(inv.dataEmissao).toLocaleDateString('pt-BR'),
+        inv.tomadorRazaoSocial.substring(0, 20),
+        formatCurrency(inv.valorServicos),
+        formatCurrency(inv.valorPis),
+        formatCurrency(inv.valorCofins),
+        formatCurrency(inv.valorCsll),
+        inv.issRetido === 1 ? 'Sim' : 'Não',
+        formatCurrency(inv.valorLiquidoNfse)
+      ]),
+      headStyles: { fillColor: [37, 99, 235] },
+      styles: { fontSize: 8 },
+      columnStyles: {
+        3: { halign: 'right' },
+        4: { halign: 'right' },
+        5: { halign: 'right' },
+        6: { halign: 'right' },
+        8: { halign: 'right' },
+      }
     });
-    doc.save(`Relatorio_Fiscal.pdf`);
+    
+    doc.save(`Relatorio_Fiscal_${companyName.replace(/\s/g, '_')}.pdf`);
   };
 
   const handleClear = () => {
