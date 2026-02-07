@@ -16,7 +16,9 @@ import {
   Check,
   CreditCard,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  Globe,
+  Briefcase
 } from 'lucide-react';
 import { NfseData } from './types.ts';
 import { parseNfseXml } from './utils/xmlHelper.ts';
@@ -25,9 +27,9 @@ import JSZip from 'jszip';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const STORAGE_KEY = 'nfse_reporter_data_v9';
-const PREMIUM_KEY = 'nfse_user_premium_v9';
-const USAGE_COUNT_KEY = 'nfse_total_usage_count_v9';
+const STORAGE_KEY = 'nfse_reporter_data_v10';
+const PREMIUM_KEY = 'nfse_user_premium_v10';
+const USAGE_COUNT_KEY = 'nfse_total_usage_count_v10';
 const FREE_LIMIT = 5;
 
 const MENSAL_LINK = "https://www.mercadopago.com.br/payment-link/v1/redirect?link-id=e9c92cd6-3936-4bba-a645-8ba89374930b&source=link";
@@ -50,6 +52,7 @@ const App: React.FC = () => {
   const [showPricing, setShowPricing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [importType, setImportType] = useState<'giss' | 'nacional'>('giss');
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(invoices));
@@ -72,7 +75,8 @@ const App: React.FC = () => {
 
   const reportPeriod = useMemo(() => {
     if (invoices.length === 0) return "";
-    const dates = invoices.map(inv => new Date(inv.dataEmissao));
+    const dates = invoices.map(inv => new Date(inv.dataEmissao)).filter(d => !isNaN(d.getTime()));
+    if (dates.length === 0) return "";
     const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
     const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
     const format = (d: Date) => {
@@ -166,11 +170,12 @@ const App: React.FC = () => {
   const exportToExcel = () => {
     if (invoices.length === 0) return;
     const dataRows = invoices.map(inv => ({
+      'Prestador': inv.prestadorRazaoSocial,
       'Numero NFSe': inv.numero,
       'Data Emissao': new Date(inv.dataEmissao).toLocaleDateString('pt-BR'),
       'Tomador': inv.tomadorRazaoSocial,
       'CNPJ/CPF Tomador': inv.tomadorCpfCnpj,
-      'Item de Servico': inv.itemListaServico,
+      'Descricao do Servico': inv.discriminacao,
       'Valor Bruto (R$)': inv.valorServicos,
       'PIS (R$)': inv.valorPis,
       'COFINS (R$)': inv.valorCofins,
@@ -186,7 +191,7 @@ const App: React.FC = () => {
 
   const exportToPDF = () => {
     if (invoices.length === 0) return;
-    const doc = new jsPDF('l', 'mm', 'a4'); // 'l' para landscape (horizontal) para caber mais colunas
+    const doc = new jsPDF('l', 'mm', 'a4');
     
     doc.setFontSize(16);
     doc.text('Relatório Fiscal de Serviços (NFSe)', 14, 15);
@@ -196,10 +201,11 @@ const App: React.FC = () => {
 
     autoTable(doc, {
       startY: 35,
-      head: [['Número', 'Data', 'Tomador', 'Bruto', 'PIS', 'COFINS', 'CSLL', 'Retido', 'Líquido']],
+      head: [['Número', 'Data', 'Prestador', 'Tomador', 'Bruto', 'PIS', 'COFINS', 'CSLL', 'Retido', 'Líquido']],
       body: invoices.map(inv => [
         inv.numero, 
         new Date(inv.dataEmissao).toLocaleDateString('pt-BR'),
+        inv.prestadorRazaoSocial.substring(0, 20),
         inv.tomadorRazaoSocial.substring(0, 20),
         formatCurrency(inv.valorServicos),
         formatCurrency(inv.valorPis),
@@ -211,11 +217,11 @@ const App: React.FC = () => {
       headStyles: { fillColor: [37, 99, 235] },
       styles: { fontSize: 8 },
       columnStyles: {
-        3: { halign: 'right' },
         4: { halign: 'right' },
         5: { halign: 'right' },
         6: { halign: 'right' },
-        8: { halign: 'right' },
+        7: { halign: 'right' },
+        9: { halign: 'right' },
       }
     });
     
@@ -279,45 +285,62 @@ const App: React.FC = () => {
 
       {/* ÁREA DE CONTEÚDO */}
       {invoices.length === 0 ? (
-        <div 
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setIsDragging(false); if(e.dataTransfer.files) processFiles(e.dataTransfer.files); }}
-          className={`border-2 border-dashed rounded-[2rem] p-32 text-center transition-all bg-white group ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}
-        >
-          <input type="file" multiple accept=".xml,.zip" onChange={(e) => e.target.files && processFiles(e.target.files)} className="hidden" id="xml-upload" />
-          <label htmlFor="xml-upload" className="cursor-pointer space-y-6 block">
-            {isProcessing ? (
-              <Loader2 className="w-16 h-16 text-blue-600 animate-spin mx-auto" />
-            ) : totalUsageCount >= FREE_LIMIT && !isPremium ? (
-              <div className="bg-red-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto">
-                <AlertCircle className="w-12 h-12 text-red-500" />
+        <div className="space-y-6">
+          <div className="flex justify-center gap-4">
+             <button 
+               onClick={() => setImportType('giss')}
+               className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${importType === 'giss' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-200'}`}
+             >
+                Padrão GISS / ABRASF
+             </button>
+             <button 
+               onClick={() => setImportType('nacional')}
+               className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-all ${importType === 'nacional' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-200'}`}
+             >
+                Portal Nacional (SPED)
+             </button>
+          </div>
+
+          <div 
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setIsDragging(false); if(e.dataTransfer.files) processFiles(e.dataTransfer.files); }}
+            className={`border-2 border-dashed rounded-[2rem] p-32 text-center transition-all bg-white group ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-blue-300'}`}
+          >
+            <input type="file" multiple accept=".xml,.zip" onChange={(e) => e.target.files && processFiles(e.target.files)} className="hidden" id="xml-upload" />
+            <label htmlFor="xml-upload" className="cursor-pointer space-y-6 block">
+              {isProcessing ? (
+                <Loader2 className="w-16 h-16 text-blue-600 animate-spin mx-auto" />
+              ) : totalUsageCount >= FREE_LIMIT && !isPremium ? (
+                <div className="bg-red-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto">
+                  <AlertCircle className="w-12 h-12 text-red-500" />
+                </div>
+              ) : (
+                <div className="bg-slate-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
+                  {importType === 'giss' ? <Briefcase className="w-10 h-10 text-blue-500" /> : <Globe className="w-10 h-10 text-blue-500" />}
+                </div>
+              )}
+              <div className="space-y-2">
+                <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
+                  {totalUsageCount >= FREE_LIMIT && !isPremium ? 'Limite de Teste Atingido' : `Importar ${importType === 'giss' ? 'XML GISS' : 'XML Portal Nacional'}`}
+                </h2>
+                <p className="text-slate-500 max-w-md mx-auto font-normal text-base">
+                  {totalUsageCount >= FREE_LIMIT && !isPremium 
+                    ? 'Você já processou o limite de 5 notas gratuitas. Assine um plano para continuar utilizando.'
+                    : `Arraste arquivos ${importType === 'giss' ? 'GISS/ABRASF' : 'Portal Nacional (SPED)'} aqui.`}
+                </p>
               </div>
-            ) : (
-              <div className="bg-slate-50 w-24 h-24 rounded-full flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
-                <FileUp className="w-10 h-10 text-blue-500" />
-              </div>
-            )}
-            <div className="space-y-2">
-              <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
-                {totalUsageCount >= FREE_LIMIT && !isPremium ? 'Limite de Teste Atingido' : 'Importar XML Fiscal'}
-              </h2>
-              <p className="text-slate-500 max-w-md mx-auto font-normal text-base">
-                {totalUsageCount >= FREE_LIMIT && !isPremium 
-                  ? 'Você já processou o limite de 5 notas gratuitas. Assine um plano para continuar utilizando.'
-                  : `Arraste seus arquivos aqui para gerar o relatório. Grátis: ${totalUsageCount}/${FREE_LIMIT} notas.`}
-              </p>
-            </div>
-            {!(totalUsageCount >= FREE_LIMIT && !isPremium) ? (
-              <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-600 px-8 py-3 rounded-full text-sm font-bold shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
-                Selecionar Arquivos
-              </div>
-            ) : (
-              <button onClick={() => setShowPricing(true)} className="inline-flex items-center gap-2 bg-red-600 text-white px-8 py-3 rounded-full text-sm font-bold shadow-md hover:bg-red-700 transition-all">
-                Ver Planos de Assinatura
-              </button>
-            )}
-          </label>
+              {!(totalUsageCount >= FREE_LIMIT && !isPremium) ? (
+                <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-600 px-8 py-3 rounded-full text-sm font-bold shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
+                  Selecionar Arquivos
+                </div>
+              ) : (
+                <button onClick={() => setShowPricing(true)} className="inline-flex items-center gap-2 bg-red-600 text-white px-8 py-3 rounded-full text-sm font-bold shadow-md hover:bg-red-700 transition-all">
+                  Ver Planos de Assinatura
+                </button>
+              )}
+            </label>
+          </div>
         </div>
       ) : (
         <>
@@ -361,8 +384,8 @@ const App: React.FC = () => {
               <table className="w-full text-left min-w-[800px]">
                 <thead className="bg-slate-50 border-b border-slate-100 text-slate-400 text-[11px] font-bold uppercase tracking-[0.1em]">
                   <tr>
-                    <th className="px-8 py-5">Documento / Data</th>
-                    <th className="px-8 py-5">Item de Serviço</th>
+                    <th className="px-8 py-5">Prestador / Documento</th>
+                    <th className="px-8 py-5">Discriminação do Serviço</th>
                     <th className="px-8 py-5 text-right">Valor Bruto</th>
                     <th className="px-8 py-5 text-right">Valor Líquido</th>
                   </tr>
@@ -374,16 +397,16 @@ const App: React.FC = () => {
                         <div className="flex items-center gap-3">
                           <FileText className="w-4 h-4 text-slate-300" />
                           <div>
-                            <span className="font-bold text-slate-700 block text-sm">NFSe № {inv.numero}</span>
-                            <span className="text-[11px] text-slate-400">{new Date(inv.dataEmissao).toLocaleDateString('pt-BR')}</span>
+                            <span className="font-bold text-slate-700 block text-xs">{inv.prestadorRazaoSocial}</span>
+                            <span className="text-[10px] text-slate-400">NF № {inv.numero} - {new Date(inv.dataEmissao).toLocaleDateString('pt-BR')}</span>
                           </div>
                         </div>
                       </td>
                       <td className="px-8 py-5">
-                        <div className="flex items-center gap-2">
-                          <ChevronRight className="w-3 h-3 text-slate-300" />
-                          <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded text-[11px] font-medium border border-slate-200">
-                            {inv.itemListaServico}
+                        <div className="flex items-center gap-2 max-w-xs overflow-hidden">
+                          <ChevronRight className="w-3 h-3 text-slate-300 flex-shrink-0" />
+                          <span className="text-slate-500 text-[11px] truncate" title={inv.discriminacao}>
+                            {inv.discriminacao}
                           </span>
                         </div>
                       </td>
